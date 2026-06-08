@@ -2,54 +2,52 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-const ddgSearchURL = "https://lite.duckduckgo.com/lite/?q=%s"
-
-// searchAndScrape: searches DuckDuckGo, gets top 3 result URLs, scrapes them.
+// searchAndScrape uses DDG HTML version, extracts top 3 result URLs, and scrapes them.
 func searchAndScrape(query string) (string, error) {
-	// 1. Perform search
-	searchPage, err := fetchHTML(fmt.Sprintf(ddgSearchURL, query))
+	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
+	html, err := fetchHTML(searchURL)
 	if err != nil {
-		return "", err
-	}
-	urls := extractResultLinks(searchPage)
-	if len(urls) == 0 {
-		return "", fmt.Errorf("no search results found")
+		return "", fmt.Errorf("search fetch: %w", err)
 	}
 
-	// 2. Scrape top results (max 3, to keep free & fast)
-	topUrls := urls
-	if len(topUrls) > 3 {
-		topUrls = topUrls[:3]
+	urls := extractResultURLs(html)
+	if len(urls) == 0 {
+		return "", fmt.Errorf("no results found")
 	}
-	return scrapeMultiple(topUrls)
+	if len(urls) > 3 {
+		urls = urls[:3]
+	}
+	return scrapeMultiple(urls)
 }
 
-// extractResultLinks parses DuckDuckGo lite HTML
-func extractResultLinks(htmlStr string) []string {
+// extractResultURLs parses DDG HTML result links.
+func extractResultURLs(htmlStr string) []string {
 	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlStr))
 	if err != nil {
 		return nil
 	}
-	var links []string
-	doc.Find("a.result-link").Each(func(i int, s *goquery.Selection) {
-		if href, exists := s.Attr("href"); exists && strings.HasPrefix(href, "http") {
-			links = append(links, href)
+	var urls []string
+	doc.Find("a.result__a").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if !exists {
+			return
+		}
+		// DDG uses relative redirect URLs like "/url?q=ACTUAL_URL"
+		if strings.HasPrefix(href, "/url?q=") {
+			if u, err := url.Parse(href); err == nil {
+				if q := u.Query().Get("q"); q != "" && strings.HasPrefix(q, "http") {
+					urls = append(urls, q)
+				}
+			}
+		} else if strings.HasPrefix(href, "http") {
+			urls = append(urls, href)
 		}
 	})
-	// fallback: look for any external link
-	if len(links) == 0 {
-		doc.Find("a").Each(func(i int, s *goquery.Selection) {
-			if href, exists := s.Attr("href"); exists &&
-				(strings.HasPrefix(href, "http") || strings.HasPrefix(href, "https")) &&
-				!strings.Contains(href, "duckduckgo.com") {
-				links = append(links, href)
-			}
-		})
-	}
-	return links
+	return urls
 }

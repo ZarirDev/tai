@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// ---------- Groq API types ----------
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -29,100 +28,78 @@ type groqResponse struct {
 	} `json:"choices"`
 }
 
-// ---------- common client ----------
-var groqHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var groqClient = &http.Client{Timeout: 30 * time.Second}
 
-// callGroq sends a prompt to Groq and returns the assistant's reply.
+// callGroq sends a prompt and returns the reply.
 func callGroq(prompt string, maxTokens int) (string, error) {
 	apiKey := os.Getenv("GROQ_API_KEY")
 	if apiKey == "" {
-		return "", fmt.Errorf("GROQ_API_KEY environment variable not set")
+		return "", fmt.Errorf("GROQ_API_KEY not set")
 	}
 
 	reqBody := groqRequest{
-		Messages: []Message{
-			{Role: "user", Content: prompt},
-		},
-		Model:     "groq/compound-mini",
+		Messages:  []Message{{Role: "user", Content: prompt}},
+		Model:     "llama-3.3-70b-versatile", // ✅ working free model
 		Stream:    false,
 		MaxTokens: maxTokens,
 	}
 
-	jsonData, err := json.Marshal(reqBody)
+	data, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshal request: %w", err)
+		return "", fmt.Errorf("marshal: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := groqHTTPClient.Do(req)
+	resp, err := groqClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http request: %w", err)
+		return "", fmt.Errorf("http: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("groq API error: %s", resp.Status)
+		// read body for more info
+		var errBody struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errBody)
+		return "", fmt.Errorf("groq API error (%d): %s", resp.StatusCode, errBody.Error.Message)
 	}
 
 	var groqResp groqResponse
 	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", fmt.Errorf("decode: %w", err)
 	}
 	if len(groqResp.Choices) == 0 {
-		return "", fmt.Errorf("no answer from Groq")
+		return "", fmt.Errorf("no answer")
 	}
 	return strings.TrimSpace(groqResp.Choices[0].Message.Content), nil
 }
 
-// ---------- public functions ----------
-
-// askGroq answers the user query using optional context.
+// askGroq answers user query (optionally with context).
 func askGroq(userQuery, context string) (string, error) {
 	var prompt string
 	if context == "" {
-		// No context – answer from internal knowledge
-		prompt = fmt.Sprintf(`You are a helpful assistant. Answer the user's question concisely and accurately.
-If you don't know the answer, say so.
-
-User question: %s`, userQuery)
+		prompt = fmt.Sprintf("Answer concisely. If unsure, say so.\nUser: %s", userQuery)
 	} else {
-		prompt = fmt.Sprintf(`You are a helpful assistant. Use the following context (scraped from the web or user-provided URLs) to answer the user's question.
-
-Context:
-%s
-
-User question: %s
-
-Answer concisely and accurately. If the context doesn't contain the answer, say so.`, context, userQuery)
+		prompt = fmt.Sprintf("Context:\n%s\n\nAnswer based on context: %s", context, userQuery)
 	}
 	return callGroq(prompt, 1024)
 }
 
-// requiresWebSearch asks Groq whether the user's query needs fresh web search.
+// requiresWebSearch decides if we need live data.
 func requiresWebSearch(query string) (bool, error) {
-	prompt := fmt.Sprintf(`You are a decision engine. Answer ONLY with "YES" or "NO" (no extra words, no punctuation).
-Does the user need up‑to‑date information from the internet for this question?
-Examples:
-- "current weather in Paris" → YES
-- "what is a dog" → NO
-- "latest news about AI" → YES
-- "who wrote Hamlet" → NO
-- "stock price of AAPL today" → YES
-- "hello" → NO
-
-Question: "%s"
-Answer:`, query)
-
+	prompt := fmt.Sprintf(`Reply ONLY "YES" or "NO". Need up‑to‑date info for: "%s"`, query)
 	reply, err := callGroq(prompt, 5)
 	if err != nil {
 		return false, err
 	}
-	reply = strings.ToUpper(strings.TrimSpace(reply))
-	return reply == "YES", nil
+	return strings.ToUpper(strings.TrimSpace(reply)) == "YES", nil
 }

@@ -9,14 +9,14 @@ import (
 )
 
 func loadEnvFile(path string) error {
-	file, err := os.Open(path)
+	f, err := os.Open(path)
 	if err != nil {
-		return nil // .env is optional
+		return nil
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	defer f.Close()
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		line := strings.TrimSpace(s.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -30,51 +30,58 @@ func loadEnvFile(path string) error {
 			os.Setenv(key, val)
 		}
 	}
-	return scanner.Err()
+	return s.Err()
 }
 
 func main() {
-	// Load .env file
+	// Load .env
 	if err := loadEnvFile(".env"); err != nil {
-		log.Printf("Warning: could not load .env: %v", err)
+		log.Printf("Warning: .env load error: %v", err)
 	}
-	if os.Getenv("GROQ_API_KEY") == "" {
-		log.Fatal("GROQ_API_KEY not set. Please create a .env file with GROQ_API_KEY=... or export it.")
+
+	// Debug: show key prefix (safe)
+	key := os.Getenv("GROQ_API_KEY")
+	if key == "" {
+		log.Fatal("GROQ_API_KEY not set. Use .env or export.")
+	}
+	if len(key) >= 4 {
+		log.Printf("✅ API key loaded: %s...", key[:4])
+	} else {
+		log.Fatal("GROQ_API_KEY is too short.")
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: ai <query or URL> [more URLs...]")
+		fmt.Println("Usage: tai <query> [URLs...]")
 		os.Exit(1)
 	}
 
-	args := os.Args[1:]
-
+	// Split args into URLs and words
 	var urls []string
-	var queryWords []string
-	for _, arg := range args {
+	var words []string
+	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://") {
 			urls = append(urls, arg)
 		} else {
-			queryWords = append(queryWords, arg)
+			words = append(words, arg)
 		}
 	}
-	userQuery := strings.Join(queryWords, " ")
+	userQuery := strings.Join(words, " ")
 
-	// Case 1: user provided URLs
+	// Case 1: explicit URLs provided
 	if len(urls) > 0 {
-		contextText, err := scrapeMultiple(urls)
+		context, err := scrapeMultiple(urls)
 		if err != nil {
-			log.Fatalf("Error scraping URLs: %v", err)
+			log.Fatalf("Scrape error: %v", err)
 		}
-		answer, err := askGroq(userQuery, contextText)
+		ans, err := askGroq(userQuery, context)
 		if err != nil {
 			log.Fatalf("Groq error: %v", err)
 		}
-		fmt.Println(answer)
+		fmt.Println(ans)
 		return
 	}
 
-	// Case 2: no URLs – decide if web search needed
+	// Case 2: no URLs – decide search
 	if userQuery == "" {
 		fmt.Println("No query provided.")
 		os.Exit(1)
@@ -82,25 +89,25 @@ func main() {
 
 	needsSearch, err := requiresWebSearch(userQuery)
 	if err != nil {
-		log.Fatalf("Error checking if search is needed: %v", err)
+		log.Fatalf("Decision error: %v", err)
 	}
 
 	if needsSearch {
 		fmt.Fprintln(os.Stderr, "🔍 Searching the web...")
-		contextText, err := searchAndScrape(userQuery)
+		context, err := searchAndScrape(userQuery)
 		if err != nil {
-			log.Fatalf("Web search failed: %v", err)
+			log.Fatalf("Search failed: %v", err)
 		}
-		answer, err := askGroq(userQuery, contextText)
+		ans, err := askGroq(userQuery, context)
 		if err != nil {
 			log.Fatalf("Groq error: %v", err)
 		}
-		fmt.Println(answer)
+		fmt.Println(ans)
 	} else {
-		answer, err := askGroq(userQuery, "")
+		ans, err := askGroq(userQuery, "")
 		if err != nil {
 			log.Fatalf("Groq error: %v", err)
 		}
-		fmt.Println(answer)
+		fmt.Println(ans)
 	}
 }
