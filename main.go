@@ -34,80 +34,36 @@ func loadEnvFile(path string) error {
 }
 
 func main() {
-	// Load .env
+	// Load .env if present
 	if err := loadEnvFile(".env"); err != nil {
 		log.Printf("Warning: .env load error: %v", err)
 	}
 
-	// Debug: show key prefix (safe)
+	// Validate API key
 	key := os.Getenv("GROQ_API_KEY")
 	if key == "" {
-		log.Fatal("GROQ_API_KEY not set. Use .env or export.")
+		log.Fatal("GROQ_API_KEY not set. Create a .env file or export it.")
 	}
 	if len(key) >= 4 {
-		log.Printf("✅ API key loaded: %s...", key[:4])
+		log.Printf("✓ API key loaded: %s...", key[:4])
 	} else {
 		log.Fatal("GROQ_API_KEY is too short.")
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: tai <query> [URLs...]")
+		fmt.Println("Usage: tai <your question>")
+		fmt.Println("Example: tai \"What is the weather in Paris?\"")
 		os.Exit(1)
 	}
 
-	// Split args into URLs and words
-	var urls []string
-	var words []string
-	for _, arg := range os.Args[1:] {
-		if strings.HasPrefix(arg, "http://") || strings.HasPrefix(arg, "https://") {
-			urls = append(urls, arg)
-		} else {
-			words = append(words, arg)
-		}
-	}
-	userQuery := strings.Join(words, " ")
+	// Join all arguments into one query (supports spaces and quotes)
+	query := strings.Join(os.Args[1:], " ")
+	log.Printf("➡️  Asking: %s", query)
 
-	// Case 1: explicit URLs provided
-	if len(urls) > 0 {
-		context, err := scrapeMultiple(urls)
-		if err != nil {
-			log.Fatalf("Scrape error: %v", err)
-		}
-		ans, err := askGroq(userQuery, context)
-		if err != nil {
-			log.Fatalf("Groq error: %v", err)
-		}
-		fmt.Println(ans)
-		return
-	}
-
-	// Case 2: no URLs – decide search
-	if userQuery == "" {
-		fmt.Println("No query provided.")
-		os.Exit(1)
-	}
-
-	needsSearch, err := requiresWebSearch(userQuery)
+	answer, err := Ask(query)
 	if err != nil {
-		log.Fatalf("Decision error: %v", err)
+		log.Fatalf("❌ Error: %v", err)
 	}
-
-	if needsSearch {
-		fmt.Fprintln(os.Stderr, "🔍 Searching the web...")
-		context, err := searchAndScrape(userQuery)
-		if err != nil {
-			log.Fatalf("Search failed: %v", err)
-		}
-		ans, err := askGroq(userQuery, context)
-		if err != nil {
-			log.Fatalf("Groq error: %v", err)
-		}
-		fmt.Println(ans)
-	} else {
-		ans, err := askGroq(userQuery, "")
-		if err != nil {
-			log.Fatalf("Groq error: %v", err)
-		}
-		fmt.Println(ans)
-	}
+	fmt.Println("\n🤖 Answer:")
+	fmt.Println(answer)
 }

@@ -20,6 +20,17 @@ type groqRequest struct {
 	Model     string    `json:"model"`
 	Stream    bool      `json:"stream"`
 	MaxTokens int       `json:"max_tokens"`
+	// Compound models accept optional search settings
+	CompoundCustom *compoundCustom `json:"compound_custom,omitempty"`
+}
+
+type compoundCustom struct {
+	SearchSettings searchSettings `json:"search_settings,omitempty"`
+}
+
+type searchSettings struct {
+	IncludeDomains []string `json:"include_domains,omitempty"`
+	ExcludeDomains []string `json:"exclude_domains,omitempty"`
 }
 
 type groqResponse struct {
@@ -28,42 +39,49 @@ type groqResponse struct {
 	} `json:"choices"`
 }
 
-var groqClient = &http.Client{Timeout: 30 * time.Second}
+var httpClient = &http.Client{Timeout: 60 * time.Second}
 
-// callGroq sends a prompt and returns the reply.
-func callGroq(prompt string, maxTokens int) (string, error) {
+// Ask sends a user query to Groq's compound model which has built‑in web search.
+func Ask(query string) (string, error) {
 	apiKey := os.Getenv("GROQ_API_KEY")
 	if apiKey == "" {
 		return "", fmt.Errorf("GROQ_API_KEY not set")
 	}
 
 	reqBody := groqRequest{
-		Messages:  []Message{{Role: "user", Content: prompt}},
-		Model:     "llama-3.3-70b-versatile", // ✅ working free model
+		Messages: []Message{
+			{Role: "user", Content: query},
+		},
+		Model:     "groq/compound-mini", // built‑in web search enabled by default
 		Stream:    false,
-		MaxTokens: maxTokens,
+		MaxTokens: 2048,
+		// Optionally restrict search domains (uncomment if needed):
+		// CompoundCustom: &compoundCustom{
+		// 	SearchSettings: searchSettings{
+		// 		ExcludeDomains: []string{"pinterest.com", "facebook.com"},
+		// 	},
+		// },
 	}
 
 	data, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("marshal: %w", err)
+		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
-		return "", fmt.Errorf("new request: %w", err)
+		return "", fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := groqClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http: %w", err)
+		return "", fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		// read body for more info
 		var errBody struct {
 			Error struct {
 				Message string `json:"message"`
@@ -75,31 +93,10 @@ func callGroq(prompt string, maxTokens int) (string, error) {
 
 	var groqResp groqResponse
 	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
-		return "", fmt.Errorf("decode: %w", err)
+		return "", fmt.Errorf("decode response: %w", err)
 	}
 	if len(groqResp.Choices) == 0 {
-		return "", fmt.Errorf("no answer")
+		return "", fmt.Errorf("no answer from Groq")
 	}
 	return strings.TrimSpace(groqResp.Choices[0].Message.Content), nil
-}
-
-// askGroq answers user query (optionally with context).
-func askGroq(userQuery, context string) (string, error) {
-	var prompt string
-	if context == "" {
-		prompt = fmt.Sprintf("Answer concisely. If unsure, say so.\nUser: %s", userQuery)
-	} else {
-		prompt = fmt.Sprintf("Context:\n%s\n\nAnswer based on context: %s", context, userQuery)
-	}
-	return callGroq(prompt, 1024)
-}
-
-// requiresWebSearch decides if we need live data.
-func requiresWebSearch(query string) (bool, error) {
-	prompt := fmt.Sprintf(`Reply ONLY "YES" or "NO". Need up‑to‑date info for: "%s"`, query)
-	reply, err := callGroq(prompt, 5)
-	if err != nil {
-		return false, err
-	}
-	return strings.ToUpper(strings.TrimSpace(reply)) == "YES", nil
 }
