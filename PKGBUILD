@@ -9,7 +9,7 @@ license=('MIT')
 depends=('glibc')
 makedepends=('go')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed') # replace with actual hash after release
+sha256sums=('92851909cebb74315b7f96a03f1471460737998f6eb494fa28133c3ee42cf4fb')
 
 build() {
   cd "$pkgname-$pkgver"
