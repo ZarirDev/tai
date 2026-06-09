@@ -11,6 +11,7 @@ import (
 // LoadConfig reads configuration from standard locations:
 //  1. ~/.config/tai/config.yaml (user config, highest priority)
 //  2. /etc/tai/config.yaml (system config, fallback)
+//  3. ./config.yaml (current directory, convenience)
 func LoadConfig() (*viper.Viper, error) {
 	v := viper.New()
 
@@ -25,16 +26,19 @@ func LoadConfig() (*viper.Viper, error) {
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 
-	// System config (lowest priority)
-	v.AddConfigPath("/etc/tai/")
+	// *** ORDER MATTERS ***
+	// Paths added first are searched first → highest priority.
 
-	// User config (highest priority)
+	// 1. User config (top priority)
 	home, err := os.UserHomeDir()
 	if err == nil {
 		v.AddConfigPath(filepath.Join(home, ".config", "tai"))
 	}
 
-	// Also current directory (convenience)
+	// 2. System config (fallback)
+	v.AddConfigPath("/etc/tai/")
+
+	// 3. Current directory (convenience)
 	v.AddConfigPath(".")
 
 	// Read the first config file found
@@ -47,8 +51,7 @@ func LoadConfig() (*viper.Viper, error) {
 	return v, nil
 }
 
-// SaveUserConfig writes the current viper state to the user config file,
-// creating ~/.config/tai/ if necessary.
+// SaveUserConfig writes the current Viper state to the user config file.
 func SaveUserConfig(v *viper.Viper) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
