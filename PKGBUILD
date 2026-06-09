@@ -1,6 +1,6 @@
 # Maintainer: Ahmad Zarir <self@zarir.org>
 pkgname=tai
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="CLI chatbot for Groq with web search"
 arch=('x86_64' 'aarch64')
