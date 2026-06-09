@@ -9,26 +9,23 @@ import (
 	"github.com/zarirdev/tai/groq"
 )
 
-// ---------------- Mock Server Test ----------------
 func TestAsk_MockSuccess(t *testing.T) {
-	// Create a fake Groq API server
+	// Fake Groq API that always returns "mock answer"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Verify request method and path
-		if r.Method != "POST" {
+		// Basic request validation
+		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
 		if r.URL.Path != "/openai/v1/chat/completions" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-
-		// Check Authorization header
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer test-key" {
 			t.Errorf("unexpected auth header: %s", auth)
 		}
 
-		// Decode request to verify structure
-		var reqBody groq.Request // We export the struct later
+		// Decode request to verify fields
+		var reqBody groq.ChatRequest
 		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
@@ -39,8 +36,8 @@ func TestAsk_MockSuccess(t *testing.T) {
 			t.Errorf("max_tokens = %d; want 5", reqBody.MaxTokens)
 		}
 
-		// Return a fake response
-		resp := groq.Response{
+		// Return a valid response
+		resp := groq.ChatResponse{
 			Choices: []groq.Choice{
 				{Message: groq.Message{Role: "assistant", Content: "mock answer"}},
 			},
@@ -50,15 +47,42 @@ func TestAsk_MockSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Override the HTTP client's target URL via a custom transport?
-	// We need to make Ask use the test server URL.
-	// Since Ask hardcodes the URL, we can't easily swap.
-	// Alternative: We'll add an internal variable for the base URL.
-	// For simplicity, we'll test the function indirectly or by refactoring.
-	// Let's show the concept: we add a package variable for the base URL.
+	// Override the base URL
+	origBase := groq.BaseURL
+	groq.BaseURL = server.URL
+	defer func() { groq.BaseURL = origBase }()
 
-	// In groq/ask.go, add: var BaseURL = "https://api.groq.com"
-	// Then in test: groq.BaseURL = server.URL
+	answer, err := groq.Ask("hello?", "test-key", "test-model", 5, nil, nil)
+	if err != nil {
+		t.Fatalf("Ask returned error: %v", err)
+	}
+	if answer != "mock answer" {
+		t.Errorf("answer = %q; want 'mock answer'", answer)
+	}
+}
 
-	// We'll include that modification in the instructions.
+func TestAsk_NoAPIKey(t *testing.T) {
+	_, err := groq.Ask("test", "", "model", 10, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for empty API key")
+	}
+}
+
+func TestAsk_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{"message": "invalid key"},
+		})
+	}))
+	defer server.Close()
+
+	origBase := groq.BaseURL
+	groq.BaseURL = server.URL
+	defer func() { groq.BaseURL = origBase }()
+
+	_, err := groq.Ask("test", "bad-key", "model", 10, nil, nil)
+	if err == nil {
+		t.Fatal("expected error from API")
+	}
 }

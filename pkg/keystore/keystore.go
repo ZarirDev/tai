@@ -12,15 +12,13 @@ import (
 	"strings"
 )
 
-// deriveKey returns a 32-byte AES key based on the machine ID and username.
+// deriveKey returns a 32-byte AES key based on the machine‑id and username.
 func deriveKey() ([]byte, error) {
 	var seed string
 
-	// Try /etc/machine-id (Linux)
 	if data, err := os.ReadFile("/etc/machine-id"); err == nil {
 		seed = strings.TrimSpace(string(data))
 	} else {
-		// fallback to hostname
 		host, _ := os.Hostname()
 		seed = host
 	}
@@ -35,7 +33,7 @@ func deriveKey() ([]byte, error) {
 	return hash[:], nil
 }
 
-// Encrypt encrypts plaintext using AES-GCM and returns a base64-encoded string.
+// Encrypt encrypts plaintext using AES‑GCM and returns a base64‑encoded string.
 func Encrypt(plaintext string) (string, error) {
 	key, err := deriveKey()
 	if err != nil {
@@ -61,7 +59,7 @@ func Encrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
-// Decrypt takes a base64-encoded encrypted string and returns the plaintext.
+// Decrypt takes a base64‑encoded encrypted string and returns the plaintext.
 func Decrypt(encoded string) (string, error) {
 	if encoded == "" {
 		return "", nil

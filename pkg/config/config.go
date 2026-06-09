@@ -8,19 +8,9 @@ import (
 	"github.com/spf13/viper"
 )
 
-type Config struct {
-	Model           string   `mapstructure:"model"`
-	MaxTokens       int      `mapstructure:"max_tokens"`
-	Debug           bool     `mapstructure:"debug"`
-	IncludeDomains  []string `mapstructure:"include_domains"`
-	ExcludeDomains  []string `mapstructure:"exclude_domains"`
-	APIKeyEncrypted string   `mapstructure:"api_key_encrypted"` // encrypted base64
-}
-
-// LoadConfig reads config from standard locations:
-// 1. ~/.config/tai/config.yaml (user config, highest priority)
-// 2. /etc/tai/config.yaml (system config, fallback)
-// Flags can override these values later.
+// LoadConfig reads configuration from standard locations:
+//  1. ~/.config/tai/config.yaml (user config, highest priority)
+//  2. /etc/tai/config.yaml (system config, fallback)
 func LoadConfig() (*viper.Viper, error) {
 	v := viper.New()
 
@@ -32,9 +22,10 @@ func LoadConfig() (*viper.Viper, error) {
 	v.SetDefault("exclude_domains", []string{})
 	v.SetDefault("api_key_encrypted", "")
 
-	// System config (lowest priority)
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
+
+	// System config (lowest priority)
 	v.AddConfigPath("/etc/tai/")
 
 	// User config (highest priority)
@@ -43,12 +34,11 @@ func LoadConfig() (*viper.Viper, error) {
 		v.AddConfigPath(filepath.Join(home, ".config", "tai"))
 	}
 
-	// Also look in current directory as a convenience
+	// Also current directory (convenience)
 	v.AddConfigPath(".")
 
-	// Read config file(s)
+	// Read the first config file found
 	if err := v.ReadInConfig(); err != nil {
-		// It's okay if no config file exists; we'll use defaults
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, fmt.Errorf("error reading config: %w", err)
 		}
@@ -57,8 +47,8 @@ func LoadConfig() (*viper.Viper, error) {
 	return v, nil
 }
 
-// SaveUserConfig writes the current viper state to the user config file
-// (creating ~/.config/tai/ if needed).
+// SaveUserConfig writes the current viper state to the user config file,
+// creating ~/.config/tai/ if necessary.
 func SaveUserConfig(v *viper.Viper) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
