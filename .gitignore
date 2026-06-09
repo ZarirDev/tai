@@ -33,3 +33,4 @@ go.work.sum
 tai
 .env
 *.log
+*.tar.gz
