@@ -1,14 +1,15 @@
-package main
+package groq
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
+
+var BaseURL = "https://api.groq.com"
 
 type Message struct {
 	Role    string `json:"role"`
@@ -16,11 +17,10 @@ type Message struct {
 }
 
 type groqRequest struct {
-	Messages  []Message `json:"messages"`
-	Model     string    `json:"model"`
-	Stream    bool      `json:"stream"`
-	MaxTokens int       `json:"max_tokens"`
-	// Compound models accept optional search settings
+	Messages       []Message       `json:"messages"`
+	Model          string          `json:"model"`
+	Stream         bool            `json:"stream"`
+	MaxTokens      int             `json:"max_tokens"`
 	CompoundCustom *compoundCustom `json:"compound_custom,omitempty"`
 }
 
@@ -41,26 +41,29 @@ type groqResponse struct {
 
 var httpClient = &http.Client{Timeout: 60 * time.Second}
 
-// Ask sends a user query to Groq's compound model which has built‑in web search.
-func Ask(query string) (string, error) {
-	apiKey := os.Getenv("GROQ_API_KEY")
+// Ask sends a query to Groq and returns the answer.
+// The apiKey is passed directly (decrypted from config).
+func Ask(query, apiKey, model string, maxTokens int, includeDomains, excludeDomains []string) (string, error) {
 	if apiKey == "" {
-		return "", fmt.Errorf("GROQ_API_KEY not set")
+		return "", fmt.Errorf("no API key provided")
 	}
 
 	reqBody := groqRequest{
 		Messages: []Message{
 			{Role: "user", Content: query},
 		},
-		Model:     "groq/compound-mini", // built‑in web search enabled by default
+		Model:     model,
 		Stream:    false,
-		MaxTokens: 2048,
-		// Optionally restrict search domains (uncomment if needed):
-		// CompoundCustom: &compoundCustom{
-		// 	SearchSettings: searchSettings{
-		// 		ExcludeDomains: []string{"pinterest.com", "facebook.com"},
-		// 	},
-		// },
+		MaxTokens: maxTokens,
+	}
+
+	if len(includeDomains) > 0 || len(excludeDomains) > 0 {
+		reqBody.CompoundCustom = &compoundCustom{
+			SearchSettings: searchSettings{
+				IncludeDomains: includeDomains,
+				ExcludeDomains: excludeDomains,
+			},
+		}
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -68,7 +71,7 @@ func Ask(query string) (string, error) {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewBuffer(data))
+	req, err := http.NewRequest("POST", BaseURL+"/openai/v1/chat/completions", bytes.NewBuffer(data))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
